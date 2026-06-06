@@ -182,20 +182,38 @@ class zanwo(Star):
         yield event.plain_result(result)
         self._schedule_auto_like(event.bot)
 
+    @staticmethod
+    def _parse_tool_target(
+        event: AiocqhttpMessageEvent, target_user_id: str
+    ) -> tuple[list[str], Optional[str]]:
+        target = (target_user_id or "self").strip()
+        normalized_target = target.lower()
+        if normalized_target in {"", "self", "me", "我", "自己", "我自己"}:
+            return [event.get_sender_id()], None
+
+        if target.startswith("@"):
+            target = target[1:].strip()
+
+        if target.isdigit():
+            return [target], None
+
+        return [], "target_user_id 只能填写 self、me、我，或纯数字 QQ 号。"
+
     @filter.llm_tool(name="like_qq_profile")
-    async def like_qq_profile(self, event: AiocqhttpMessageEvent, target: str = "self"):
-        """给 QQ 名片点赞。
+    async def like_qq_profile(
+        self, event: AiocqhttpMessageEvent, target_user_id: str = "self"
+    ):
+        """给指定 QQ 用户的名片点赞。仅在 QQ/aiocqhttp 平台可用。
 
         Args:
-            target(string): 点赞目标，可填 self、me、我，或明确的 QQ 号。未明确提供时默认给当前发言者点赞。
+            target_user_id(string): 点赞目标。填写 self、me、我 表示给当前发言者点赞；也可以填写纯数字 QQ 号。
         """
-        normalized_target = target.strip().lower() if target else "self"
-        if normalized_target in {"", "self", "me", "我", "自己", "我自己"}:
-            target_ids = [event.get_sender_id()]
-        elif target.strip().isdigit():
-            target_ids = [target.strip()]
-        else:
-            return "只能给当前发言者点赞，或给明确提供的 QQ 号点赞。"
+        if not isinstance(event, AiocqhttpMessageEvent):
+            return "点赞功能仅支持 QQ/aiocqhttp 平台，当前会话无法使用。"
+
+        target_ids, error = self._parse_tool_target(event, target_user_id)
+        if error:
+            return error
 
         result = await self._run_like(event, target_ids)
         if not result:
